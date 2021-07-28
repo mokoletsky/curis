@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 class Tokenizer(nn.Module):
-    def __init__(self, args, nchars, emb_dim, hidden_dim, dropout):
+    def __init__(self, args, nchars, emb_dim, hidden_dim, dropout, feat_dropout):
         super().__init__()
 
         self.args = args
@@ -15,11 +15,10 @@ class Tokenizer(nn.Module):
         self.embeddings2 = nn.Embedding(16264, emb_dim, padding_idx=0)
 
         self.rnn_syb = nn.LSTM(emb_dim, hidden_dim//2, num_layers=self.args['rnn_layers'], bidirectional=True, batch_first=True, dropout=dropout if self.args['rnn_layers'] > 1 else 0)
-
         self.rnn_char = nn.LSTM(emb_dim + feat_dim, hidden_dim//2, num_layers=self.args['rnn_layers'], bidirectional=True, batch_first=True, dropout=dropout if self.args['rnn_layers'] > 1 else 0)
 
-        # This is for character embeddings:                                                                                                                                                                                                                                                                                                                                                                                                                                                            
-        self.args['conv_res'] = "3,3,3"
+        # This is for character embeddings:                                                                                                                                                                                                                                                                                                                                                                                                                                   
+        self.args['conv_res'] = "3,5,9"
 
         if self.args['conv_res'] is not None:
             self.conv_res = nn.ModuleList()
@@ -36,10 +35,10 @@ class Tokenizer(nn.Module):
         if self.args['use_mwt']:
             self.mwt_clf = nn.Linear(hidden_dim * 2, 1)
 
-        # Add separate layer for syllable embeddings:                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+        # Add separate layer for syllable embeddings:                                                                                                                                                                                                                                                                                                                                                                                                                         
         if self.args['conv_res'] is not None:
             self.syllable_conv_res = nn.ModuleList()
-            self.conv_sizes = [3,3,3]
+            self.conv_sizes = [3,5,9]
             for si, size in enumerate(self.conv_sizes):
 
                 l = nn.Conv1d(hidden_dim, hidden_dim, size, padding=size//2, bias=self.args.get('hier_conv_res', False) or (si == 0))
@@ -54,9 +53,12 @@ class Tokenizer(nn.Module):
                 self.mwt_clf2 = nn.Linear(hidden_dim * 2, 1, bias=False)
 
         self.dropout = nn.Dropout(dropout)
+        self.dropout_feat = nn.Dropout(feat_dropout)
+
         self.toknoise = nn.Dropout(self.args['tok_noise'])
 
     def forward(self, x, x2, feats):
+
         emb = self.embeddings(x)
         emb = self.dropout(emb)
 
@@ -68,7 +70,7 @@ class Tokenizer(nn.Module):
         inp, _ = self.rnn_char(emb)
         inp2, _ = self.rnn_syb(emb2)
 
-        inp = torch.cat([inp, inp2], 2)
+        #inp = torch.cat([inp, inp2], 2)                                                                                                                                                                                                                                                                                                                                                                                                                                      
 
         if self.args['conv_res'] is not None:
             conv_input = inp.transpose(1, 2).contiguous()
@@ -90,9 +92,10 @@ class Tokenizer(nn.Module):
                 inp2, _ = torch.max(inp2, 3)
 
                 inp = torch.cat([inp, inp2], 2)
-                """                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
-                for l in self.conv_res:                                                                                                                                                                                                                                                                                                                                                                                                                                                                
-                    inp = inp + l(conv_input).transpose(1, 2).contiguous()                                                                                                                                                                                                                                                                                                                                                                                                                             
+
+                """                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+                for l in self.conv_res:                                                                                                                                                                                                                                                                                                                                                                                                                                       
+                    inp = inp + l(conv_input).transpose(1, 2).contiguous()                                                                                                                                                                                                                                                                                                                                                                                                    
                 """
             else:
                 hid = []
@@ -137,10 +140,5 @@ class Tokenizer(nn.Module):
             pred = torch.cat([nontok, tok+nonsent, tok+sent], 2)
 
         return pred
-
-
-
-
-
 
 
